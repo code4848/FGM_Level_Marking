@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FGM Level Marking</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
+
+    :root {
+      --bg: #0a0c10;
+      --panel: #111418;
+      --accent: #00e5ff;
+      --accent2: #ff6b35;
+      --text: #c8d6e5;
+      --border: rgba(0,229,255,0.18);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 12px;
+    }
+
+    .logo {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .logo span { color: var(--accent2); }
+
+    /* ── CONTROLS ── */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .btn:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btn.active { background: var(--accent2); color: var(--bg); border-color: var(--accent2); }
+
+    .zoom-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--accent);
+      min-width: 48px;
+      text-align: center;
+    }
+
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+
+    /* ── CANVAS AREA ── */
+    #viewport {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      background:
+        radial-gradient(ellipse at 20% 30%, rgba(0,229,255,0.04) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 70%, rgba(255,107,53,0.04) 0%, transparent 60%),
+        var(--bg);
+    }
+    #viewport.grabbing { cursor: grabbing; }
+
+    #canvas {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: center center;
+      will-change: transform;
+      transition: transform 0.08s ease-out;
+    }
+
+    #canvas img {
+      display: block;
+      max-width: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      box-shadow:
+        0 0 0 1px rgba(0,229,255,0.25),
+        0 8px 60px rgba(0,0,0,0.7);
+    }
+
+    /* ── CROSSHAIR HINT ── */
+    .hint {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.7rem;
+      color: rgba(200,214,229,0.35);
+      pointer-events: none;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── MINIMAP ── */
+    #minimap-wrap {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      border: 1px solid var(--border);
+      background: rgba(10,12,16,0.85);
+      width: 120px;
+      height: 80px;
+      overflow: hidden;
+      border-radius: 3px;
+      backdrop-filter: blur(6px);
+    }
+    #minimap-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0.6;
+      display: block;
+    }
+    #minimap-box {
+      position: absolute;
+      border: 1px solid var(--accent);
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0,229,255,0.15);
+    }
+
+    /* ── UPLOAD OVERLAY (shown when no image yet) ── */
+    #drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      pointer-events: none;
+    }
+    #drop-overlay.hidden { display: none; }
+    .drop-icon {
+      font-size: 2.8rem;
+      line-height: 1;
+      color: rgba(0,229,255,0.3);
+    }
+    .drop-text {
+      font-size: 0.9rem;
+      letter-spacing: 0.1em;
+      color: rgba(200,214,229,0.4);
+      text-transform: uppercase;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">FGM <span>Level</span> Marking</div>
+  <div class="controls">
+    <button class="btn" id="btn-zoom-out" title="Zoom Out (-)">－</button>
+    <span class="zoom-label" id="zoom-label">100%</span>
+    <button class="btn" id="btn-zoom-in" title="Zoom In (+)">＋</button>
+    <div class="sep"></div>
+    <button class="btn" id="btn-fit" title="Fit to screen">FIT</button>
+    <button class="btn" id="btn-100" title="Actual size">1:1</button>
+    <button class="btn" id="btn-reset" title="Reset position">RESET</button>
+
+  </div>
+</header>
+
+<div id="viewport">
+  <div id="canvas">
+    <!-- Image injected here -->
+  </div>
+
+  <div id="drop-overlay">
+    <div class="drop-icon">🗺</div>
+    <div class="drop-text">Click "Load Image" or drop a JPG / PNG here</div>
+  </div>
+
+  <div class="hint">Scroll to zoom · Drag to pan · Ctrl+scroll = precise zoom</div>
+
+  <div id="minimap-wrap" style="display:none">
+    <img id="minimap-img" src="" alt="minimap" />
+    <div id="minimap-box"></div>
+  </div>
+</div>
+
+
+
+<script>
+  // ── STATE ──────────────────────────────────────────────
+  let scale = 1;
+  let tx = 0, ty = 0;          // translate in px
+  let isDragging = false;
+  let dragStart = { x: 0, y: 0 };
+  let imgEl = null;
+  let imgNaturalW = 0, imgNaturalH = 0;
+
+  const MIN_SCALE = 0.05;
+  const MAX_SCALE = 20;
+  const ZOOM_STEP = 0.15;
+
+  const viewport  = document.getElementById('viewport');
+  const canvas    = document.getElementById('canvas');
+  const zoomLabel = document.getElementById('zoom-label');
+  const dropOver  = document.getElementById('drop-overlay');
+  const mmWrap    = document.getElementById('minimap-wrap');
+  const mmImg     = document.getElementById('minimap-img');
+  const mmBox     = document.getElementById('minimap-box');
+  const fileInput = document.getElementById('file-input');
+
+  // ── TRANSFORM ──────────────────────────────────────────
+  function applyTransform(animate) {
+    if (animate) {
+      canvas.style.transition = 'transform 0.18s cubic-bezier(.25,.8,.25,1)';
+    } else {
+      canvas.style.transition = 'none';
+    }
+    canvas.style.transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${scale})`;
+    zoomLabel.textContent = Math.round(scale * 100) + '%';
+    updateMinimap();
+  }
+
+  function clampScale(s) {
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+  }
+
+  // Zoom toward a focal point (vx, vy) in viewport coords
+  function zoomAt(vx, vy, factor) {
+    if (!imgEl) return;
+    const newScale = clampScale(scale * factor);
+    const ratio = newScale / scale;
+    // focal point relative to canvas center
+    const cx = vx - viewport.clientWidth / 2;
+    const cy = vy - viewport.clientHeight / 2;
+    tx = cx + (tx - cx) * ratio;
+    ty = cy + (ty - cy) * ratio;
+    scale = newScale;
+    applyTransform(false);
+  }
+
+  // ── FIT / RESET ────────────────────────────────────────
+  function fitToScreen() {
+    if (!imgEl) return;
+    const vw = viewport.clientWidth  - 40;
+    const vh = viewport.clientHeight - 40;
+    const s  = Math.min(vw / imgNaturalW, vh / imgNaturalH, 1);
+    scale = s; tx = 0; ty = 0;
+    applyTransform(true);
+  }
+
+  function actualSize() {
+    scale = 1; tx = 0; ty = 0;
+    applyTransform(true);
+  }
+
+  function resetView() {
+    fitToScreen();
+  }
+
+  // ── MINIMAP ────────────────────────────────────────────
+  function updateMinimap() {
+    if (!imgEl) return;
+    const mmW = mmWrap.clientWidth;
+    const mmH = mmWrap.clientHeight;
+    const vw  = viewport.clientWidth;
+    const vh  = viewport.clientHeight;
+
+    // Image rect in viewport coordinates
+    const iw = imgNaturalW * scale;
+    const ih = imgNaturalH * scale;
+    const ix = vw / 2 + tx - iw / 2;
+    const iy = vh / 2 + ty - ih / 2;
+
+    // Scale factors minimap→image
+    const msx = mmW / imgNaturalW;
+    const msy = mmH / imgNaturalH;
+
+    // Visible area in image space
+    const visX = (-ix) / scale;
+    const visY = (-iy) / scale;
+    const visW = vw / scale;
+    const visH = vh / scale;
+
+    // Clamp
+    const bx = Math.max(0, visX * msx);
+    const by = Math.max(0, visY * msy);
+    const bw = Math.min(mmW, visW * msx);
+    const bh = Math.min(mmH, visH * msy);
+
+    mmBox.style.left   = bx + 'px';
+    mmBox.style.top    = by + 'px';
+    mmBox.style.width  = bw + 'px';
+    mmBox.style.height = bh + 'px';
+  }
+
+  // ── LOAD IMAGE ─────────────────────────────────────────
+  function loadImage(src, filename) {
+    const img = new Image();
+    img.onload = () => {
+      imgNaturalW = img.naturalWidth;
+      imgNaturalH = img.naturalHeight;
+      imgEl = img;
+      canvas.innerHTML = '';
+      canvas.appendChild(img);
+      dropOver.classList.add('hidden');
+      mmWrap.style.display = '';
+      mmImg.src = src;
+      fitToScreen();
+    };
+    img.src = src;
+    img.alt = filename || 'Chart';
+  }
+
+  // Try to auto-load the JPG from the same directory
+  // (works when deployed on GitHub Pages)
+  (function autoLoad() {
+    // List of candidate filenames — update if your file has a different name
+    const candidates = [
+      'LFGM_Level_Marking.jpg',
+      'FGM_Level_Marking.jpg',
+      'FGM_level_marking.jpg',
+      'fgm_level_marking.jpg',
+      'chart.jpg',
+      'image.jpg'
+    ];
+    let tried = 0;
+    function tryNext() {
+      if (tried >= candidates.length) return;
+      const name = candidates[tried++];
+      const img = new Image();
+      img.onload  = () => loadImage(img.src, name);
+      img.onerror = tryNext;
+      img.src = name;
+    }
+    tryNext();
+  })();
+
+  // ── EVENTS ─────────────────────────────────────────────
+
+  // Button controls
+  document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+    zoomAt(cx, cy, 1 + ZOOM_STEP);
+  });
+  document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+    zoomAt(cx, cy, 1 - ZOOM_STEP);
+  });
+  document.getElementById('btn-fit').addEventListener('click', fitToScreen);
+  document.getElementById('btn-100').addEventListener('click', actualSize);
+  document.getElementById('btn-reset').addEventListener('click', resetView);
+
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', e => {
+    const cx = viewport.clientWidth / 2, cy = viewport.clientHeight / 2;
+    if (e.key === '+' || e.key === '=') zoomAt(cx, cy, 1 + ZOOM_STEP);
+    if (e.key === '-' || e.key === '_') zoomAt(cx, cy, 1 - ZOOM_STEP);
+    if (e.key === '0') fitToScreen();
+    if (e.key === '1') actualSize();
+    if (e.key === 'ArrowLeft')  { tx -= 40; applyTransform(false); }
+    if (e.key === 'ArrowRight') { tx += 40; applyTransform(false); }
+    if (e.key === 'ArrowUp')    { ty -= 40; applyTransform(false); }
+    if (e.key === 'ArrowDown')  { ty += 40; applyTransform(false); }
+  });
+
+  // Mouse wheel zoom
+  viewport.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.ctrlKey
+      ? (e.deltaY < 0 ? 1.05 : 0.95)
+      : (e.deltaY < 0 ? 1.18 : 0.85);
+    zoomAt(e.clientX, e.clientY - viewport.getBoundingClientRect().top, factor);
+  }, { passive: false });
+
+  // Drag to pan
+  viewport.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    dragStart = { x: e.clientX - tx, y: e.clientY - ty };
+    viewport.classList.add('grabbing');
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    tx = e.clientX - dragStart.x;
+    ty = e.clientY - dragStart.y;
+    applyTransform(false);
+  });
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+    viewport.classList.remove('grabbing');
+  });
+
+  // Touch support
+  let lastDist = null;
+  let lastTouchMid = null;
+  viewport.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      dragStart = { x: e.touches[0].clientX - tx, y: e.touches[0].clientY - ty };
+    }
+    if (e.touches.length === 2) {
+      isDragging = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastDist = Math.hypot(dx, dy);
+      lastTouchMid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2 - viewport.getBoundingClientRect().top
+      };
+    }
+  }, { passive: true });
+  viewport.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isDragging) {
+      tx = e.touches[0].clientX - dragStart.x;
+      ty = e.touches[0].clientY - dragStart.y;
+      applyTransform(false);
+    }
+    if (e.touches.length === 2 && lastDist !== null) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      zoomAt(lastTouchMid.x, lastTouchMid.y, dist / lastDist);
+      lastDist = dist;
+    }
+  }, { passive: false });
+  viewport.addEventListener('touchend', () => {
+    isDragging = false; lastDist = null; lastTouchMid = null;
+  });
+
+  // Drag & Drop file onto page
+  viewport.addEventListener('dragover', e => e.preventDefault());
+  viewport.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    loadImage(URL.createObjectURL(file), file.name);
+  });
+
+  // Double-click to zoom in, right-click to zoom out
+  viewport.addEventListener('dblclick', e => {
+    zoomAt(e.clientX, e.clientY - viewport.getBoundingClientRect().top, 1.6);
+  });
+  viewport.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY - viewport.getBoundingClientRect().top, 0.65);
+  });
+</script>
+</body>
+</html>
